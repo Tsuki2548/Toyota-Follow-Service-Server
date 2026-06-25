@@ -442,7 +442,6 @@ async function loadWorkspace() {
 
   tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px;">กำลังโหลด...</td></tr>`;
 
-  // เพิ่ม LEFT JOIN Vehicles v เพื่อดึงเลขทะเบียนรถ (v.vehicle_registration_no)
   const sql = `
                 SELECT
                     jo.job_order_no, jo.job_order_date, c.contact_name, c.tel_no, e.employee_name, f.next_contact_date,
@@ -481,16 +480,14 @@ async function loadWorkspace() {
       let cTel = (r[3] || "").toLowerCase();
       let nextDate = r[5];
       let cRejPending = r[7];
-      let licensePlate = (r[13] || "").toLowerCase(); // ดึงค่าเลขทะเบียนรถจาก SQL Index ที่ 13
+      let licensePlate = (r[13] || "").toLowerCase();
 
       let rowYm = "";
       if (jDate) {
         let parts = jDate.split(/[-/]/);
         if (parts.length === 3) {
-          if (parts[0].length === 4)
-            rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
-          else if (parts[2].length === 4)
-            rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
+          if (parts[0].length === 4) rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+          else if (parts[2].length === 4) rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
         }
       }
 
@@ -503,18 +500,22 @@ async function loadWorkspace() {
         }
       }
 
-      let isOverdue = cRejPending > 0 && nextDate && nextDate < todayStr;
-      let isCalledToday = cRejPending > 0 && r[11] && r[11].trim() !== "";
-      let noDateSet = cRejPending > 0 && (!nextDate || nextDate === "");
+      // เพิ่มการเช็คผลการโทรของความพยายามรอบล่าสุด
+      let callResult = r[11] || "";
+      let isCalled = callResult.trim() !== "";
 
+      // หมวดหมู่และเงื่อนไขการกรองแบบใหม่
       let matchStatus = true;
-      if (statusFilter === "PENDING") matchStatus = cRejPending > 0;
-      else if (statusFilter === "COMPLETED") matchStatus = cRejPending === 0;
-      else if (statusFilter === "OVERDUE") matchStatus = isOverdue;
-      else if (statusFilter === "CALLED_TODAY") matchStatus = isCalledToday;
-      else if (statusFilter === "NO_CONTACT_SET") matchStatus = noDateSet;
+      if (statusFilter === "PENDING") {
+        // รอดำเนินการ = ไม่มีวันโทร หรือ มีวันโทรแต่โทรไปแล้ว (ยังไม่ได้ตั้งวันใหม่)
+        matchStatus = cRejPending > 0 && (!nextDate || nextDate === "" || isCalled);
+      } else if (statusFilter === "TO_CALL") {
+        // ต้องโทรติดตาม = มีวันโทร และ ต้องยังไม่ได้ทำการโทรเท่านั้น
+        matchStatus = cRejPending > 0 && (nextDate && nextDate !== "" && !isCalled);
+      } else if (statusFilter === "COMPLETED") {
+        matchStatus = cRejPending === 0;
+      }
 
-      // เพิ่มเงื่อนไขค้นหาด้วย licensePlate.includes(searchText)
       let matchSearch =
         !searchText ||
         jobNo.includes(searchText) ||
@@ -527,16 +528,17 @@ async function loadWorkspace() {
     .sort((a, b) => {
       const hasDateA = a[5] && a[5] !== "" && a[5] !== "9999-12-31";
       const hasDateB = b[5] && b[5] !== "" && b[5] !== "9999-12-31";
+
+      // ดันงานที่มีวันโทรติดตามขึ้นบนสุด เรียงจากอดีต -> อนาคต
+      if (hasDateA && hasDateB) return (a[5] || "").localeCompare(b[5] || "");
       if (hasDateA && !hasDateB) return -1;
       if (!hasDateA && hasDateB) return 1;
-      if (hasDateA && hasDateB)
-        return (a[5] || "9999-12-31").localeCompare(b[5] || "9999-12-31");
+
+      // งานที่ไม่มีวันโทร ให้เรียงตามวันที่ใบสั่งซ่อมจากใหม่ -> เก่า
       const toISO = (d) => {
         if (!d) return "";
         const p = d.split(/[-/]/);
-        return p[2].length === 4
-          ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`
-          : d;
+        return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
       };
       return toISO(b[1]).localeCompare(toISO(a[1]));
     });
@@ -544,9 +546,7 @@ async function loadWorkspace() {
   const toISODate = (d) => {
     if (!d) return "-";
     const p = d.split(/[-/]/);
-    return p[2].length === 4
-      ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`
-      : d;
+    return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
   };
 
   if (rowsData.length === 0) {
@@ -592,7 +592,8 @@ async function loadWorkspace() {
       }
 
       let tr = document.createElement("tr");
-      if (isOverdue && statusFilter === "PENDING") tr.className = "overdue";
+      // ถ้าสถานะเป็น TO_CALL แล้วยังเกินกำหนด ให้ไฮไลท์แดง
+      if (isOverdue && statusFilter === "TO_CALL") tr.className = "overdue";
       tr.setAttribute("onclick", "handleRowClick(event, 'row-checkbox')");
       tr.style.cursor = "pointer";
 
@@ -628,19 +629,14 @@ async function loadWorkspace() {
     });
   };
   renderWSRows(rowsData.slice(0, 50));
-  if (rowsData.length > 50)
-    setTimeout(() => renderWSRows(rowsData.slice(50)), 10);
+  if (rowsData.length > 50) setTimeout(() => renderWSRows(rowsData.slice(50)), 10);
 }
 
 async function loadPromotionJobs() {
   const shared = getSharedDateFilters();
-  const searchText = (
-    document.getElementById("promo_search")?.value || ""
-  ).toLowerCase();
-  const sheetFilter =
-    document.getElementById("promo_sheet_filter")?.value || "ALL";
-  const statusFilter =
-    document.getElementById("promo_status_filter")?.value || "ALL";
+  const searchText = (document.getElementById("promo_search")?.value || "").toLowerCase();
+  const sheetFilter = document.getElementById("promo_sheet_filter")?.value || "ALL";
+  const statusFilter = document.getElementById("promo_status_filter")?.value || "ALL";
   const saFilter = document.getElementById("promo_sa_filter")?.value || "ALL";
 
   const promoCheckAll = document.getElementById("promo_check_all");
@@ -648,11 +644,8 @@ async function loadPromotionJobs() {
 
   updatePromoSheetDropdown(sheetFilter);
   let sheetClause =
-    sheetFilter !== "ALL"
-      ? ` AND pp.source_sheet = '${sheetFilter.replace(/'/g, "''")}'`
-      : "";
+    sheetFilter !== "ALL" ? ` AND pp.source_sheet = '${sheetFilter.replace(/'/g, "''")}'` : "";
 
-  // เพิ่ม LEFT JOIN Vehicles v เพื่อดึงข้อมูลเลขทะเบียนรถในหน้างานโปรโมชันด้วย
   const sql = `
                 SELECT
                     jo.job_order_no, jo.job_order_date, c.contact_name, c.tel_no, e.employee_name, f.next_contact_date,
@@ -673,8 +666,6 @@ async function loadPromotionJobs() {
                 LEFT JOIN Follow_Ups f ON fm.job_order_no = f.job_order_no AND fm.max_att = f.attempt_number
                 WHERE 1=1 ${sheetClause}
                 GROUP BY jo.job_order_no
-                ORDER BY CASE WHEN f.next_contact_date IS NOT NULL AND f.next_contact_date != '' THEN 0 ELSE 1 END,
-                    f.next_contact_date ASC, substr(jo.job_order_date,7,4)||substr(jo.job_order_date,4,2)||substr(jo.job_order_date,1,2) DESC
             `;
 
   const tbody = document.getElementById("promo_job_body");
@@ -688,8 +679,7 @@ async function loadPromotionJobs() {
   }
 
   updatePromoSADropdown(saFilter, rows);
-  const effectiveSaFilter =
-    document.getElementById("promo_sa_filter")?.value || "ALL";
+  const effectiveSaFilter = document.getElementById("promo_sa_filter")?.value || "ALL";
   const effectiveSaFilterNorm = effectiveSaFilter.toLowerCase();
   const todayStr = new Date().toISOString().split("T")[0];
 
@@ -699,17 +689,16 @@ async function loadPromotionJobs() {
     const cName = (r[2] || "").toLowerCase();
     const cTel = (r[3] || "").toLowerCase();
     const saName = (r[4] || "").toLowerCase();
+    const nextDate = r[5] || "";
     const cRejPending = r[7] || 0;
-    const licensePlate = (r[13] || "").toLowerCase(); // ดึงค่าเลขทะเบียนรถ Index ที่ 13
+    const licensePlate = (r[13] || "").toLowerCase();
 
     let rowYm = "";
     if (jDate) {
       let parts = jDate.split(/[-/]/);
       if (parts.length === 3) {
-        if (parts[0].length === 4)
-          rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
-        else if (parts[2].length === 4)
-          rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
+        if (parts[0].length === 4) rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+        else if (parts[2].length === 4) rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
       }
     }
 
@@ -722,7 +711,6 @@ async function loadPromotionJobs() {
       }
     }
 
-    // เพิ่มเงื่อนไขค้นหาด้วย licensePlate.includes(searchText)
     let matchSearch =
       !searchText ||
       jobNo.includes(searchText) ||
@@ -731,21 +719,48 @@ async function loadPromotionJobs() {
       saName.includes(searchText) ||
       licensePlate.includes(searchText);
 
+    // เพิ่มการเช็คผลการโทรของความพยายามรอบล่าสุด
+    let callResult = r[11] || "";
+    let isCalled = callResult.trim() !== "";
+
+    // หมวดหมู่และเงื่อนไขการกรองแบบใหม่ (Promotion)
     let matchStatus = true;
-    if (statusFilter === "PENDING") matchStatus = cRejPending > 0;
-    else if (statusFilter === "COMPLETED") matchStatus = cRejPending === 0;
-    let matchSa =
-      effectiveSaFilter === "ALL" || saName === effectiveSaFilterNorm;
+    if (statusFilter === "PENDING") {
+      // รอดำเนินการ = ไม่มีวันโทร หรือ มีวันโทรแต่โทรไปแล้ว (ยังไม่ได้ตั้งวันใหม่)
+      matchStatus = cRejPending > 0 && (!nextDate || nextDate === "" || isCalled);
+    } else if (statusFilter === "TO_CALL") {
+      // ต้องโทรติดตาม = มีวันโทร และ ต้องยังไม่ได้ทำการโทรเท่านั้น
+      matchStatus = cRejPending > 0 && (nextDate && nextDate !== "" && !isCalled);
+    } else if (statusFilter === "COMPLETED") {
+      matchStatus = cRejPending === 0;
+    }
+
+    let matchSa = effectiveSaFilter === "ALL" || saName === effectiveSaFilterNorm;
 
     return matchDate && matchSearch && matchStatus && matchSa;
+  });
+
+  // จัดเรียงลำดับใหม่ให้งานโปรโมชั่น
+  rows.sort((a, b) => {
+    const hasDateA = a[5] && a[5] !== "" && a[5] !== "9999-12-31";
+    const hasDateB = b[5] && b[5] !== "" && b[5] !== "9999-12-31";
+
+    if (hasDateA && hasDateB) return (a[5] || "").localeCompare(b[5] || "");
+    if (hasDateA && !hasDateB) return -1;
+    if (!hasDateA && hasDateB) return 1;
+
+    const toISO = (d) => {
+      if (!d) return "";
+      const p = d.split(/[-/]/);
+      return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
+    };
+    return toISO(b[1]).localeCompare(toISO(a[1]));
   });
 
   const toISODate = (d) => {
     if (!d) return "-";
     const p = d.split(/[-/]/);
-    return p[2].length === 4
-      ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`
-      : d;
+    return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
   };
 
   if (!rows.length) {
@@ -811,7 +826,7 @@ async function loadPromotionJobs() {
         : `<label class="custom-checkbox"><input type="checkbox" class="promo-row-checkbox" value="${jobNo}" data-attempt="${attempt}" data-cname="${cName}"><span class="checkmark"></span></label>`;
 
       const tr = document.createElement("tr");
-      if (isOverdue && statusFilter === "PENDING") tr.className = "overdue";
+      if (isOverdue && statusFilter === "TO_CALL") tr.className = "overdue";
       tr.setAttribute("onclick", "handleRowClick(event, 'promo-row-checkbox')");
       tr.style.cursor = "pointer";
       tr.innerHTML = `
@@ -2003,4 +2018,106 @@ function showPartsDetailModal(partNo) {
 
 function closePartsModal() {
   document.getElementById("partsModal").style.display = "none";
+};
+
+// ==========================================================================
+// ฟังก์ชันเสริม: ส่งออกข้อมูลอะไหล่ล่วงหน้าเป็น Excel แยกชีตรวนตามรายวันนัดหมาย
+// ==========================================================================
+async function exportPartsPrepToExcel() {
+  const filterStart = document.getElementById("parts_filter_start")?.value || "";
+  const filterEnd = document.getElementById("parts_filter_end")?.value || "";
+
+  if (!filterStart) {
+    return showToast("กรุณาเลือกช่วงวันที่ต้องการส่งออกข้อมูลก่อน", "warning");
+  }
+
+  // คำนวณลอจิกบวกล่วงหน้า 3 วันเพื่อดึงวันนัดหมายลูกค้าจริง
+  const queryStart = addDaysToDateStr(filterStart, 3);
+  const queryEnd = addDaysToDateStr(filterEnd, 3);
+
+  // ดึงข้อมูลรายการประเภทอะไหล่ (P) ที่ได้รับการ APPROVED
+  let sql = `
+    SELECT 
+        ji.operation_part_no,
+        op.operation_description,
+        ji.flat_rate_qty,
+        f.appointment_date
+    FROM Job_Order_Items ji
+    JOIN Job_Orders jo ON ji.job_order_no = jo.job_order_no
+    LEFT JOIN Operations_Parts op ON ji.operation_part_no = op.operation_part_no
+    JOIN Follow_Ups f ON jo.job_order_no = f.job_order_no
+    WHERE ji.item_type = 'P' 
+      AND ji.sa_status = 'APPROVED'
+      AND f.appointment_date IS NOT NULL 
+      AND f.appointment_date <> ''
+  `;
+
+  if (queryStart) sql += ` AND substr(f.appointment_date, 1, 10) >= '${queryStart}'`;
+  if (queryEnd) sql += ` AND substr(f.appointment_date, 1, 10) <= '${queryEnd}'`;
+  sql += ` ORDER BY f.appointment_date ASC, ji.operation_part_no ASC`;
+
+  const rows = await runQuery(sql);
+
+  if (rows.length === 0) {
+    return showToast("ไม่พบข้อมูลอะไหล่ที่ต้องสั่งซื้อในช่วงวันนัดหมายดังกล่าว", "warning");
+  }
+
+  // โครงสร้างสำหรับจัดกลุ่มข้อมูลแบบ: { "YYYY-MM-DD": { "PART_NO": { ข้อมูลอะไหล่ } } }
+  const dailyData = {};
+
+  rows.forEach((row) => {
+    const partNo = row[0];
+    const partName = row[1] || "ไม่มีข้อมูลชื่ออะไหล่";
+    const qty = parseFloat(row[2]) || 0;
+    const apptDateFull = row[3] || "";
+    const apptDate = apptDateFull.split(" ")[0]; // ตัดเวลาออก เอาเฉพาะวันที่นัดหมาย YYYY-MM-DD
+
+    if (!dailyData[apptDate]) {
+      dailyData[apptDate] = {};
+    }
+
+    if (!dailyData[apptDate][partNo]) {
+      dailyData[apptDate][partNo] = {
+        partNo: partNo,
+        partName: partName,
+        totalQty: 0
+      };
+    }
+    // รวมจำนวนชิ้นในวันเดียวกัน
+    dailyData[apptDate][partNo].totalQty += qty;
+  });
+
+  // สร้าง Workbook ใหม่ของ Excel
+  const wb = XLSX.utils.book_new();
+  const headers = ["เลขอะไหล่", "ชื่ออะไหล่", "จำนวน"];
+
+  // เรียงลำดับวันที่นัดหมายจากน้อยไปมาก เพื่อจัดเรียงหน้าชีตใน Excel
+  const sortedDates = Object.keys(dailyData).sort();
+
+  sortedDates.forEach((date) => {
+    const sheetData = [headers]; // ใส่หัวคอลัมน์ให้กับทุกชีต
+    const partsObj = dailyData[date];
+
+    // แตกรายการอะไหล่ของวันนั้นๆ ลงในชีต
+    Object.keys(partsObj).forEach((partNo) => {
+      const item = partsObj[partNo];
+      sheetData.push([item.partNo, item.partName, item.totalQty]);
+    });
+
+    // แปลงข้อมูลเป็น Sheet ของ Excel
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    // ตั้งชื่อชีตตามวันที่นัดหมายลูกค้ารายวันนั้นๆ (เช่น "2026-06-28")
+    XLSX.utils.book_append_sheet(wb, ws, date);
+  });
+
+  // ตั้งชื่อไฟล์ระบุช่วงวันที่เตรียมสั่งเพื่อให้อ่านง่าย
+  let fileDateSuffix = filterStart;
+  if (filterStart !== filterEnd) {
+    fileDateSuffix = `${filterStart}_ถึง_${filterEnd}`;
+  }
+
+  // สั่งเซฟไฟล์ลงเครื่องผู้ใช้งาน
+  XLSX.writeFile(wb, `เตรียมสั่งอะไหล่ล่วงหน้า_วันที่เตรียมสั่ง_${fileDateSuffix}.xlsx`);
+  showToast("ส่งออกข้อมูลเป็น Excel รายวันแยกชีตสำเร็จเรียบร้อย", "success");
 };

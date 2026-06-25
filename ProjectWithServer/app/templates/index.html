@@ -268,6 +268,7 @@
                         <select id="status_filter" onchange="loadWorkspace()">
                             <option value="ALL">ทั้งหมด</option>
                             <option value="PENDING">รอดำเนินการ</option>
+                            <option value="TO_CALL">ต้องโทรติดตาม</option>
                             <option value="COMPLETED">เสร็จสิ้น</option>
                         </select>
                     </div>
@@ -337,6 +338,7 @@
                         <select id="promo_status_filter" onchange="loadPromotionJobs()">
                             <option value="ALL">ทั้งหมด</option>
                             <option value="PENDING">รอดำเนินการ</option>
+                            <option value="TO_CALL">ต้องโทรติดตาม</option>
                             <option value="COMPLETED">เสร็จสิ้น</option>
                         </select>
                     </div>
@@ -500,9 +502,15 @@
             <div class="section">
                 <div class="section-title">
                     รายการอะไหล่ที่ต้องสั่งล่วงหน้า (คำนวณก่อนวันนัดหมาย 3 วันอัตโนมัติ)
-                    <button class="action-btn btn-dark btn-sm" onclick="loadPartsPrep()">
-                        รีเฟรชข้อมูล
-                    </button>
+                    <div style="margin-left: auto; display: flex; gap: 10px;">
+                        <button class="action-btn btn-success btn-sm" onclick="exportPartsPrepToExcel()"
+                            style="margin: 0;">
+                            ส่งออกเป็น Excel
+                        </button>
+                        <button class="action-btn btn-dark btn-sm" onclick="loadPartsPrep()" style="margin: 0;">
+                            รีเฟรชข้อมูล
+                        </button>
+                    </div>
                 </div>
 
                 <div class="action-bar row-gap-15" style="background: white;">
