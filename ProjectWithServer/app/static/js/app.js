@@ -112,8 +112,7 @@ function switchTab(tabId) {
 
   const sharedFilter = document.querySelector(".shared-filter");
   if (sharedFilter) {
-    // ปรับเงื่อนไข: ให้ซ่อน Shared Filter ทั้งในหน้าจัดการระบบ (upload) และหน้านัดหมายลูกค้า (appointments)
-    sharedFilter.style.display = (tabId === "upload" || tabId === "appointments") ? "none" : "flex";
+    sharedFilter.style.display = (tabId === "upload" || tabId === "appointments" || tabId === "parts-prep") ? "none" : "flex";
   }
 
   const target = document.getElementById("content-" + tabId);
@@ -122,10 +121,10 @@ function switchTab(tabId) {
   if (tabId === "workspace") loadWorkspace();
   if (tabId === "dashboard") updateDashboard();
   if (tabId === "promotion") loadPromotionJobs();
-  if (tabId === "appointments") {
-    // นำ refreshSharedYearOptionsFromDB() ออกได้เลย เพราะหน้านี้ใช้ตัวกรองวันที่แยกของตัวเองแล้ว
-    loadAppointments();
-  }
+  if (tabId === "appointments") loadAppointments();
+
+  // เพิ่มส่วนนี้เพื่อโหลดข้อมูลของแท็บเตรียมสั่งอะไหล่
+  if (tabId === "parts-prep") loadPartsPrep();
 
   document.getElementById("tab-btn-" + tabId).classList.add("active");
 }
@@ -1834,4 +1833,174 @@ document.getElementById("btn_import_promo").onclick = function () {
     }, 50);
   };
   reader.readAsArrayBuffer(file);
+};
+
+// ==========================================================================
+// ฟีเจอร์: ระบบตรวจเช็คและเตรียมสั่งอะไหล่ล่วงหน้า (Offset +3 วันจากวันที่เลือก) [รูปแบบ B]
+// ==========================================================================
+
+function addDaysToDateStr(dateStr, days) {
+  if (!dateStr) return "";
+  let date = new Date(dateStr);
+  date.setDate(date.getDate() + days);
+  let y = date.getFullYear();
+  let m = String(date.getMonth() + 1).padStart(2, '0');
+  let d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function loadPartsPrep() {
+  const filterStart = document.getElementById("parts_filter_start")?.value || "";
+  const filterEnd = document.getElementById("parts_filter_end")?.value || "";
+  const tbody = document.getElementById("parts_prep_body");
+
+  if (!tbody) return;
+
+  if (!filterStart) {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById("parts_filter_start").value = today;
+    document.getElementById("parts_filter_end").value = today;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;">กำลังโหลดข้อมูล...</td></tr>`;
+    setTimeout(loadPartsPrep, 10);
+    return;
+  }
+
+  const queryStart = addDaysToDateStr(filterStart, 3);
+  const queryEnd = addDaysToDateStr(filterEnd, 3);
+
+  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;">กำลังโหลดข้อมูลนัดหมายวันที่ ${queryStart} ถึง ${queryEnd}...</td></tr>`;
+
+  // SQL Query ดึงข้อมูลรวมถึง วันที่ลูกค้านัดหมาย (f.appointment_date)
+  let sql = `
+    SELECT 
+        ji.operation_part_no,
+        op.operation_description,
+        ji.flat_rate_qty,
+        jo.job_order_no,
+        c.contact_name,
+        c.tel_no,
+        v.vehicle_registration_no,
+        f.appointment_date
+    FROM Job_Order_Items ji
+    JOIN Job_Orders jo ON ji.job_order_no = jo.job_order_no
+    LEFT JOIN Operations_Parts op ON ji.operation_part_no = op.operation_part_no
+    LEFT JOIN Customers c ON jo.customer_id = c.customer_id
+    LEFT JOIN Vehicles v ON jo.vin_no = v.vin_no
+    JOIN Follow_Ups f ON jo.job_order_no = f.job_order_no
+    WHERE ji.item_type = 'P' 
+      AND ji.sa_status = 'APPROVED'
+      AND f.appointment_date IS NOT NULL 
+      AND f.appointment_date <> ''
+  `;
+
+  if (queryStart) sql += ` AND substr(f.appointment_date, 1, 10) >= '${queryStart}'`;
+  if (queryEnd) sql += ` AND substr(f.appointment_date, 1, 10) <= '${queryEnd}'`;
+  sql += ` ORDER BY ji.operation_part_no ASC`;
+
+  const rows = await runQuery(sql);
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#999;">ไม่พบรายการอะไหล่ที่ต้องสั่งสำหรับวันนัดหมายในช่วงนี้</td></tr>`;
+    return;
+  }
+
+  const partsMap = {};
+  rows.forEach((row) => {
+    const partNo = row[0];
+    const partName = row[1] || "ไม่มีข้อมูลชื่ออะไหล่";
+    const qty = parseFloat(row[2]) || 0;
+    const jobNo = row[3];
+    const customerName = row[4] || "-";
+    const telNo = row[5] || "-";
+    const regNo = row[6] || "-";
+    const apptDate = row[7] || "-";
+
+    if (!partsMap[partNo]) {
+      partsMap[partNo] = {
+        partNo: partNo,
+        partName: partName,
+        totalQty: 0,
+        jobs: []
+      };
+    }
+
+    partsMap[partNo].totalQty += qty;
+    partsMap[partNo].jobs.push({
+      jobNo: jobNo,
+      customerName: customerName,
+      telNo: telNo,
+      regNo: regNo,
+      qty: qty,
+      apptDate: apptDate // บันทึกข้อมูลวันที่นัดหมายของแต่ละงานไว้
+    });
+  });
+
+  window.partsPrepCache = partsMap;
+
+  tbody.innerHTML = "";
+  Object.keys(partsMap).forEach((partNo) => {
+    const item = partsMap[partNo];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+        <td style="font-weight:700; color:var(--tmt-blue);">${item.partNo}</td>
+        <td><strong>${item.partName}</strong></td>
+        <td style="text-align:center; font-weight:700; font-size:1.1em; color:var(--tmt-dark);">${item.totalQty.toLocaleString()}</td>
+        <td style="text-align:center;">
+            <button class="action-btn btn-dark btn-sm" onclick="showPartsDetailModal('${escapeHtmlAttr(item.partNo)}')">
+                ดูรายละเอียด
+            </button>
+        </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function showPartsDetailModal(partNo) {
+  const item = window.partsPrepCache ? window.partsPrepCache[partNo] : null;
+  if (!item) return;
+
+  document.getElementById("parts_modal_title").innerText = `รายละเอียดใบสั่งซ่อมสำหรับอะไหล่: ${item.partNo}`;
+  const modalBody = document.getElementById("parts_modal_body");
+
+  // เพิ่มคอลัมน์ "วันที่นัดหมายลูกค้า" ลงในตารางย่อย (แจกแจงตามแถวงานซ่อม)
+  let html = `
+    <div style="padding:20px; background:#f8f9fa; border-bottom:1px solid var(--tmt-border);">
+        <strong>ชื่ออะไหล่:</strong> ${item.partName} <br>
+        <strong>จำนวนที่ต้องการใช้ทั้งหมด:</strong> <span style="color:var(--tmt-red); font-weight:700;">${item.totalQty} ชิ้น</span>
+    </div>
+    <table class="data-table" style="margin:0; border:none;">
+        <thead>
+            <tr>
+                <th>วันที่นัดหมายลูกค้า</th>
+                <th>เลขที่ใบสั่งซ่อม</th>
+                <th>ชื่อลูกค้า</th>
+                <th>เบอร์โทรศัพท์</th>
+                <th>ทะเบียนรถ</th>
+                <th style="text-align:center; width:100px;">จำนวน (ชิ้น)</th>
+            </tr>
+        </thead>
+        <tbody>
+  `;
+
+  item.jobs.forEach((job) => {
+    html += `
+        <tr>
+            <td style="font-weight:700; color:var(--tmt-blue);">${job.apptDate}</td>
+            <td><strong>${job.jobNo}</strong></td>
+            <td>${job.customerName}</td>
+            <td>${job.telNo}</td>
+            <td style="font-weight:700; color:var(--tmt-red);">${job.regNo}</td>
+            <td style="text-align:center; font-weight:700;">${job.qty}</td>
+        </tr>
+    `;
+  });
+
+  html += `</tbody></table>`;
+  modalBody.innerHTML = html;
+
+  document.getElementById("partsModal").style.display = "flex";
+}
+
+function closePartsModal() {
+  document.getElementById("partsModal").style.display = "none";
 };

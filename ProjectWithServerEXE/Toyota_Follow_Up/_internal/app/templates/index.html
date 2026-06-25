@@ -62,6 +62,9 @@
             <button id="tab-btn-appointments" onclick="handleTabSwitch('appointments')">
                 นัดหมายลูกค้า
             </button>
+            <button id="tab-btn-parts-prep" onclick="handleTabSwitch('parts-prep')">
+                เตรียมสั่งอะไหล่ล่วงหน้า
+            </button>
             <button id="tab-btn-upload" onclick="handleTabSwitch('upload')">
                 จัดการระบบ
             </button>
@@ -491,6 +494,58 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+        <div id="content-parts-prep" class="tab-content">
+            <div class="section">
+                <div class="section-title">
+                    รายการอะไหล่ที่ต้องสั่งล่วงหน้า (คำนวณก่อนวันนัดหมาย 3 วันอัตโนมัติ)
+                    <button class="action-btn btn-dark btn-sm" onclick="loadPartsPrep()">
+                        รีเฟรชข้อมูล
+                    </button>
+                </div>
+
+                <div class="action-bar row-gap-15" style="background: white;">
+                    <div class="action-group" style="border-right: none;">
+                        <strong>ช่วงวันที่เตรียมสั่งอะไหล่:</strong>
+                        <input type="date" id="parts_filter_start" onchange="loadPartsPrep()" />
+                        <span style="margin: 0 10px;">ถึง</span>
+                        <input type="date" id="parts_filter_end" onchange="loadPartsPrep()" />
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>เลขอะไหล่</th>
+                                <th>ชื่ออะไหล่</th>
+                                <th style="text-align: center; width: 150px;">จำนวนรวม (ชิ้น)</th>
+                                <th style="text-align: center; width: 150px;">การทำงาน</th>
+                            </tr>
+                        </thead>
+                        <tbody id="parts_prep_body">
+                            <tr>
+                                <td colspan="4" style="text-align: center; padding: 20px; color: #999;">
+                                    กรุณาเลือกช่วงวันที่ต้องการตรวจเช็คอะไหล่
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="partsModal">
+        <div class="modal-content" style="width: 850px;">
+            <div class="modal-header">
+                <h3 class="margin-0 color-dark" id="parts_modal_title">
+                    รายละเอียดการใช้ อะไหล่
+                </h3>
+                <button class="close-btn" onclick="closePartsModal()">X</button>
+            </div>
+            <div id="parts_modal_body" style="padding: 0; overflow-y: auto; flex-grow: 1;">
             </div>
         </div>
     </div>
