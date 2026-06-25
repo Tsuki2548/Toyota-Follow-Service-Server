@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>ระบบติดตามงานซ่อมเพิ่มเติม โตโยต้า</title>
+    <link rel="icon" type="image/svg+xml" href="https://logosandtypes.com/wp-content/uploads/2020/10/toyota-old.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</head>
+
+<body>
+    <div id="toast">ข้อความ</div>
+
+    <div class="modal-overlay" id="historyModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="margin-0 color-dark" id="modal_title" style="display: flex; align-items: center">
+                    รายละเอียดใบสั่งซ่อม
+                </h3>
+                <div class="display-flex gap-15 align-items-center">
+                    <button class="close-btn" id="modal_close_btn" onclick="closeModal()">
+                        X
+                    </button>
+                </div>
+            </div>
+            <div id="modal_body"></div>
+            <div class="modal-footer" id="modal_footer" style="display: none"></div>
+        </div>
+    </div>
+
+    <div class="top-header">
+        <h2 style="cursor: pointer" onclick="window.location.reload()">
+            <span>TOYOTA</span> Follow-Up Service
+        </h2>
+        <div class="status-container">
+            <div class="status-box" id="db_status_box">
+                สถานะ: <span class="color-red">ยังไม่เชื่อมต่อ</span>
+            </div>
+            <button id="btn_save_db" class="action-btn btn-success" disabled style="margin: 0">
+                บันทึกฐานข้อมูล
+            </button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="nav-tabs">
+            <button id="tab-btn-dashboard" class="active" onclick="handleTabSwitch('dashboard')">
+                ภาพรวมยอดขาย
+            </button>
+            <button id="tab-btn-workspace" onclick="handleTabSwitch('workspace')">
+                พื้นที่ทำงานพนักงานรับรถ
+            </button>
+            <button id="tab-btn-promotion" onclick="handleTabSwitch('promotion')">
+                งานโปรโมชัน
+            </button>
+            <button id="tab-btn-appointments" onclick="handleTabSwitch('appointments')">
+                นัดหมายลูกค้า
+            </button>
+            <button id="tab-btn-upload" onclick="handleTabSwitch('upload')">
+                จัดการระบบ
+            </button>
+        </div>
+
+        <!-- ปรับปรุงตัวกรองวันที่ให้เป็นช่วงเวลา -->
+        <div class="action-bar shared-filter" style="align-items: center">
+            <span style="font-weight: 600">ช่วงวันที่เปิดงานซ่อม:</span>
+            <input type="month" id="shared_filter_start" onchange="onSharedDateChange()" />
+            <span style="margin: 0 10px">ถึง</span>
+            <input type="month" id="shared_filter_end" onchange="onSharedDateChange()" />
+        </div>
+
+        <div id="content-dashboard" class="tab-content active">
+            <div class="section">
+                <div class="section-title">ภาพรวมยอดขาย</div>
+                <div class="action-bar" style="background: white">
+                    <button class="action-btn btn-dark" onclick="updateDashboard()" style="margin-left: auto">
+                        รีเฟรชข้อมูล
+                    </button>
+                </div>
+                <div class="kpi-grid">
+                    <div class="kpi-card kpi-card--dark">
+                        <div style="
+                                    color: #666;
+                                    font-weight: 700;
+                                    font-size: 1.1em;
+                                ">
+                            ยอดขายรวม
+                        </div>
+                        <h1 id="dash_total" style="margin: 5px 0; color: var(--tmt-dark)">
+                            0.00 ฿
+                        </h1>
+                    </div>
+                    <div class="kpi-card kpi-card--amber">
+                        <div style="
+                                    color: #666;
+                                    font-weight: 700;
+                                    font-size: 1.1em;
+                                ">
+                            ยอดค้างอนุมัติ
+                        </div>
+                        <h1 id="dash_pending" style="margin: 5px 0; color: #d39e00">
+                            0.00 ฿
+                        </h1>
+                        <span id="dash_pct_pending" class="badge" style="background: #d39e00; color: #000">0.00%</span>
+                    </div>
+                    <div class="kpi-card kpi-card--green">
+                        <div style="
+                                    color: #666;
+                                    font-weight: 700;
+                                    font-size: 1.1em;
+                                ">
+                            ยอดอนุมัติปกติ
+                        </div>
+                        <h1 id="dash_approve_ori" style="margin: 5px 0; color: var(--tmt-green)">
+                            0.00 ฿
+                        </h1>
+                        <span id="dash_pct_approve_ori" class="badge badge-green">0.00%</span>
+                    </div>
+                    <div class="kpi-card kpi-card--blue">
+                        <div style="color: #666; font-weight: 600">
+                            ยอดอนุมัติปรับ
+                        </div>
+                        <h1 id="dash_approve_adj" style="margin: 5px 0; color: var(--tmt-blue)">
+                            0.00 ฿
+                        </h1>
+                        <span id="dash_pct_approve_adj" class="badge badge-blue">0.00%</span>
+                    </div>
+                </div>
+
+                <div class="section-title" style="font-size: 1em; border-bottom: 1px solid #ddd">
+                    วิเคราะห์การปฏิเสธ (เหตุผลหลัก)
+                </div>
+                <div class="section overflow-x-auto" style="margin-bottom: 20px; background: #fffbfb">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>เหตุผลที่ปฏิเสธ</th>
+                                <th style="text-align: center; width: 150px">
+                                    จำนวน
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="rejection_summary_body">
+                            <tr>
+                                <td colspan="2" style="
+                                            text-align: center;
+                                            color: #999;
+                                            padding: 20px;
+                                        ">
+                                    ไม่มีข้อมูลการปฏิเสธ
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-title" style="font-size: 1em; border-bottom: 1px solid #ddd">
+                    ภาพรวมผลงานพนักงานรับรถ
+                </div>
+                <div class="section overflow-x-auto" style="margin-bottom: 20px">
+                    <h4 style="
+                                margin: 15px 0 10px 0;
+                                color: var(--tmt-dark);
+                            ">
+                        สรุป
+                    </h4>
+                    <table class="data-table" id="leaderboard_summary_table">
+                        <thead>
+                            <tr>
+                                <th>พนักงาน (ชื่อพนักงาน)</th>
+                                <th style="text-align: center">
+                                    จำนวนใบงาน
+                                </th>
+                                <th style="text-align: center">
+                                    ตั้งติดตาม
+                                </th>
+                                <th style="text-align: center">
+                                    ติดตามเสร็จ
+                                </th>
+                                <th style="text-align: center">รายการ</th>
+                                <th style="text-align: right">
+                                    ยอดรวม (฿)
+                                </th>
+                                <th style="text-align: right">
+                                    อัตราปรับ (%)
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaderboard_summary_body">
+                            <tr>
+                                <td colspan="7" style="text-align: center">
+                                    ไม่มีข้อมูล
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section overflow-x-auto">
+                    <h4 style="
+                                margin: 15px 0 10px 0;
+                                color: var(--tmt-dark);
+                            ">
+                        รายละเอียดการอนุมัติ
+                    </h4>
+                    <table class="data-table" id="leaderboard_detail_table">
+                        <thead>
+                            <tr>
+                                <th>พนักงาน (ชื่อพนักงาน)</th>
+                                <th style="text-align: center">
+                                    อนุมัติปกติ (จำนวน)
+                                </th>
+                                <th style="text-align: right">
+                                    อนุมัติปกติ (฿)
+                                </th>
+                                <th style="text-align: center">
+                                    อนุมัติปรับ (จำนวน)
+                                </th>
+                                <th style="text-align: right">
+                                    อนุมัติปรับ (฿)
+                                </th>
+                                <th style="text-align: center">
+                                    ค้างอนุมัติ (จำนวน)
+                                </th>
+                                <th style="text-align: right">
+                                    ค้างอนุมัติ (฿)
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaderboard_detail_body">
+                            <tr>
+                                <td colspan="7" style="text-align: center">
+                                    ไม่มีข้อมูล
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-workspace" class="tab-content">
+            <div class="section">
+                <div class="section-title">
+                    งานติดตาม
+                    <button class="action-btn btn-dark btn-sm" onclick="loadWorkspace()">
+                        รีเฟรชตาราง
+                    </button>
+                </div>
+                <div class="action-bar row-gap-15">
+                    <div class="action-group">
+                        <strong>พนักงานรับรถ:</strong>
+                        <select id="sa_filter" onchange="loadWorkspace()">
+                            <option value="ALL">-- ทั้งหมด --</option>
+                        </select>
+                    </div>
+                    <div class="action-group">
+                        <strong>สถานะ:</strong>
+                        <select id="status_filter" onchange="loadWorkspace()">
+                            <option value="ALL">ทั้งหมด</option>
+                            <option value="PENDING">รอดำเนินการ</option>
+                            <option value="COMPLETED">เสร็จสิ้น</option>
+                        </select>
+                    </div>
+                    <div class="action-group" style="border-right: none">
+                        <strong>ค้นหา:</strong>
+                        <input type="text" id="ws_search" placeholder="ชื่อ, โทรศัพท์ หรือเลขที่ใบสั่งซ่อม..."
+                            onkeyup="loadWorkspace()" class="width-200px" />
+                    </div>
+                </div>
+                <div class="action-bar background-light">
+                    <span style="color: var(--tmt-blue); font-weight: bold">ทำรายการจำนวนมาก:</span>
+                    <span>วันที่ติดต่อครั้งถัดไป:</span>
+                    <input type="date" id="bulk_date" />
+                    <input type="text" id="bulk_note" placeholder="หมายเหตุ" class="width-250px" />
+                    <button class="action-btn btn-blue" onclick="applyBulkFollowUp()">
+                        บันทึกรายการที่เลือก
+                    </button>
+                </div>
+                <div class="overflow-x-auto max-height-60vh">
+                    <table class="data-table" id="sa_table">
+                        <thead>
+                            <tr>
+                                <th class="width-40px" style="text-align: center">
+                                    <input type="checkbox" id="checkAll" onchange="toggleAllCheckboxes()"
+                                        class="header-checkbox" />
+                                </th>
+                                <th>วันที่ติดต่อครั้งถัดไป</th>
+                                <th>เลขที่ใบสั่งซ่อม / วันที่</th>
+                                <th>ข้อมูลลูกค้า</th>
+                                <th class="width-150px">พนักงานรับรถ</th>
+                                <th>สถานะการติดตาม</th>
+                                <th style="text-align: center">การทำงาน</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sa_table_body">
+                            <tr>
+                                <td colspan="7" style="
+                                            text-align: center;
+                                            padding: 20px;
+                                        ">
+                                    กรุณาโหลดฐานข้อมูลก่อน
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-promotion" class="tab-content">
+            <div class="section">
+                <div class="section-title">
+                    งานโปรโมชัน
+                    <button class="action-btn btn-dark btn-sm" onclick="loadPromotionJobs()">
+                        รีเฟรชตาราง
+                    </button>
+                </div>
+                <div class="action-bar row-gap-15">
+                    <div class="action-group">
+                        <strong>หมวดหมู่:</strong>
+                        <select id="promo_sheet_filter" onchange="loadPromotionJobs()">
+                            <option value="ALL">ทุกชีต</option>
+                        </select>
+                    </div>
+                    <div class="action-group">
+                        <strong>สถานะ:</strong>
+                        <select id="promo_status_filter" onchange="loadPromotionJobs()">
+                            <option value="ALL">ทั้งหมด</option>
+                            <option value="PENDING">รอดำเนินการ</option>
+                            <option value="COMPLETED">เสร็จสิ้น</option>
+                        </select>
+                    </div>
+                    <div class="action-group">
+                        <strong>พนักงานรับรถ:</strong>
+                        <select id="promo_sa_filter" onchange="loadPromotionJobs()">
+                            <option value="ALL">พนักงานรับรถทุกคน</option>
+                        </select>
+                    </div>
+                    <div class="action-group" style="border-right: none">
+                        <strong>ค้นหา:</strong>
+                        <input type="text" id="promo_search" placeholder="เลขที่ใบสั่งซ่อม..."
+                            onkeyup="loadPromotionJobs()" class="width-220px" />
+                    </div>
+                </div>
+                <div class="action-bar background-light">
+                    <span style="color: var(--tmt-blue); font-weight: bold">ทำรายการจำนวนมาก:</span>
+                    <span>วันที่ติดต่อครั้งถัดไป:</span>
+                    <input type="date" id="promo_review_date" />
+                    <input type="text" id="promo_note" placeholder="หมายเหตุ" class="width-250px" />
+                    <button class="action-btn btn-blue" onclick="applyPromotionReview()">
+                        บันทึกรายการที่เลือก
+                    </button>
+                </div>
+                <div class="overflow-x-auto max-height-60vh">
+                    <table class="data-table" id="promo_job_table">
+                        <thead>
+                            <tr>
+                                <th class="width-40px" style="text-align: center">
+                                    <input type="checkbox" id="promo_check_all" onchange="
+                                                toggleAllPromotionCheckboxes()
+                                            " class="header-checkbox" />
+                                </th>
+                                <th>วันที่ติดต่อครั้งถัดไป</th>
+                                <th>เลขที่ใบสั่งซ่อม / วันที่</th>
+                                <th>ข้อมูลลูกค้า</th>
+                                <th class="width-150px">พนักงานรับรถ</th>
+                                <th>สถานะการติดตาม</th>
+                                <th style="text-align: center">การทำงาน</th>
+                            </tr>
+                        </thead>
+                        <tbody id="promo_job_body">
+                            <tr>
+                                <td colspan="7" style="
+                                            text-align: center;
+                                            padding: 20px;
+                                        ">
+                                    ยังไม่มีข้อมูลงานโปรโมชัน
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-appointments" class="tab-content">
+            <div class="section">
+                <div class="section-title">
+                    ตารางนัดหมายลูกค้า
+                    <button class="action-btn btn-success btn-sm" onclick="exportAppointmentsToExcel()"
+                        style="margin-left: auto; margin-right: 10px">
+                        ส่งออกเป็น Excel
+                    </button>
+                    <button class="action-btn btn-dark btn-sm" onclick="loadAppointments()">
+                        รีเฟรชตารางนัดหมาย
+                    </button>
+                </div>
+                <div class="action-bar row-gap-15">
+                    <div class="action-group" style="display: flex; align-items: center; gap: 5px;">
+                        <strong>ช่วงวันที่นัดหมาย:</strong>
+                        <input type="date" id="apt_filter_start" onchange="loadAppointments()" />
+                        <span>ถึง</span>
+                        <input type="date" id="apt_filter_end" onchange="loadAppointments()" />
+                    </div>
+                    <div class="action-group">
+                        <strong>พนักงานรับรถ:</strong>
+                        <select id="apt_sa_filter" onchange="loadAppointments()">
+                            <option value="ALL">-- ทั้งหมด --</option>
+                        </select>
+                    </div>
+                    <div class="action-group" style="border-right: none">
+                        <strong>ค้นหา:</strong>
+                        <input type="text" id="apt_search" placeholder="ชื่อลูกค้า หรือใบสั่งซ่อม..."
+                            onkeyup="loadAppointments()" class="width-200px" />
+                    </div>
+                </div>
+                <div class="overflow-x-auto max-height-60vh">
+                    <table class="data-table" id="apt_table">
+                        <thead>
+                            <tr>
+                                <th>วันที่นัดหมาย</th>
+                                <th>เลขที่ใบสั่งซ่อม</th>
+                                <th>ชื่อลูกค้า</th>
+                                <th>โทรศัพท์</th>
+                                <th>ชื่อพนักงานรับรถ</th>
+                                <th>หมายเหตุ</th>
+                                <th style="text-align: center">การทำงาน</th>
+                            </tr>
+                        </thead>
+                        <tbody id="apt_table_body">
+                            <tr>
+                                <td colspan="7" style="
+                                            text-align: center;
+                                            padding: 20px;
+                                        ">
+                                    ไม่พบรายการนัดหมาย
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-upload" class="tab-content">
+            <div class="section">
+                <div class="section-title">ตั้งค่าระบบ</div>
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <div class="card-title">นำเข้าข้อมูล (Excel)</div>
+                        <div class="card-desc">
+                            นำเข้าข้อมูลงานซ่อมใหม่ (รูปแบบคงที่
+                            โดยจะข้ามแถวแรกที่เป็นหัวตารางเสมอ)
+                        </div>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="excel_file" accept=".xlsx, .xls, .csv" disabled
+                                class="width-80-percent" />
+                        </div>
+                        <div class="card-actions">
+                            <button id="btn_import_excel" class="action-btn btn-primary width-100-percent" disabled>
+                                เริ่มนำเข้า
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-card">
+                        <div class="card-title">นำเข้าชิ้นส่วนโปรโมชัน</div>
+                        <div class="card-desc">
+                            นำเข้าชิ้นส่วนโปรโมชัน (หัวตารางบรรทัดที่ 5)
+                        </div>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="promo_excel_file" accept=".xlsx, .xls" disabled
+                                class="width-80-percent" />
+                        </div>
+                        <div class="card-actions" style="display: flex; gap: 10px">
+                            <button id="btn_import_promo" class="action-btn btn-blue" style="flex: 1; margin-right: 0"
+                                disabled>
+                                เริ่มนำเข้าโปรโมชัน
+                            </button>
+                            <button id="btn_clear_promo" class="action-btn btn-dark" style="flex: 1; margin-right: 0"
+                                onclick="clearPromotionData()" disabled>
+                                ล้างข้อมูล
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
