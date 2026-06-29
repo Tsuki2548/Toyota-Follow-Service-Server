@@ -51,7 +51,7 @@
     <div class="container">
         <div class="nav-tabs">
             <button id="tab-btn-dashboard" class="active" onclick="handleTabSwitch('dashboard')">
-                ภาพรวมยอดขาย
+                ภาพรวมยอดเสนอ
             </button>
             <button id="tab-btn-workspace" onclick="handleTabSwitch('workspace')">
                 พื้นที่ทำงานพนักงานรับรถ
@@ -61,6 +61,9 @@
             </button>
             <button id="tab-btn-appointments" onclick="handleTabSwitch('appointments')">
                 นัดหมายลูกค้า
+            </button>
+            <button id="tab-btn-parts-prep" onclick="handleTabSwitch('parts-prep')">
+                เตรียมสั่งอะไหล่ล่วงหน้า
             </button>
             <button id="tab-btn-upload" onclick="handleTabSwitch('upload')">
                 จัดการระบบ
@@ -77,7 +80,7 @@
 
         <div id="content-dashboard" class="tab-content active">
             <div class="section">
-                <div class="section-title">ภาพรวมยอดขาย</div>
+                <div class="section-title">ภาพรวมยอดเสนอ</div>
                 <div class="action-bar" style="background: white">
                     <button class="action-btn btn-dark" onclick="updateDashboard()" style="margin-left: auto">
                         รีเฟรชข้อมูล
@@ -90,7 +93,7 @@
                                     font-weight: 700;
                                     font-size: 1.1em;
                                 ">
-                            ยอดขายรวม
+                            ยอดเสนอรวม
                         </div>
                         <h1 id="dash_total" style="margin: 5px 0; color: var(--tmt-dark)">
                             0.00 ฿
@@ -249,6 +252,10 @@
             <div class="section">
                 <div class="section-title">
                     งานติดตาม
+                    <button class="action-btn btn-success btn-sm" onclick="exportWorkspaceToExcel()"
+                        style="margin-left: auto; margin-right: 10px">
+                        ส่งออกเป็น Excel
+                    </button>
                     <button class="action-btn btn-dark btn-sm" onclick="loadWorkspace()">
                         รีเฟรชตาราง
                     </button>
@@ -265,13 +272,17 @@
                         <select id="status_filter" onchange="loadWorkspace()">
                             <option value="ALL">ทั้งหมด</option>
                             <option value="PENDING">รอดำเนินการ</option>
+                            <option value="TO_CALL">ต้องโทรติดตาม</option>
                             <option value="COMPLETED">เสร็จสิ้น</option>
                         </select>
                     </div>
-                    <div class="action-group" style="border-right: none">
+                    <div class="action-group" style="border-right: none;">
                         <strong>ค้นหา:</strong>
-                        <input type="text" id="ws_search" placeholder="ชื่อ, โทรศัพท์ หรือเลขที่ใบสั่งซ่อม..."
-                            onkeyup="loadWorkspace()" class="width-200px" />
+                        <input type="text" id="ws_search" placeholder="ค้นหาใบงาน, ชื่อลูกค้า, ทะเบียน..."
+                            onkeyup="if(event.key === 'Enter') loadWorkspace()"
+                            style="width: 250px; padding: 6px; border: 1px solid #ccc; border-radius: 4px;" />
+                        <button class="action-btn btn-dark btn-sm" onclick="loadWorkspace()"
+                            style="margin: 0 0 0 5px; padding: 6px 12px;">ค้นหา</button>
                     </div>
                 </div>
                 <div class="action-bar background-light">
@@ -318,6 +329,10 @@
             <div class="section">
                 <div class="section-title">
                     งานโปรโมชัน
+                    <button class="action-btn btn-success btn-sm" onclick="exportPromotionToExcel()"
+                        style="margin-left: auto; margin-right: 10px">
+                        ส่งออกเป็น Excel
+                    </button>
                     <button class="action-btn btn-dark btn-sm" onclick="loadPromotionJobs()">
                         รีเฟรชตาราง
                     </button>
@@ -334,6 +349,7 @@
                         <select id="promo_status_filter" onchange="loadPromotionJobs()">
                             <option value="ALL">ทั้งหมด</option>
                             <option value="PENDING">รอดำเนินการ</option>
+                            <option value="TO_CALL">ต้องโทรติดตาม</option>
                             <option value="COMPLETED">เสร็จสิ้น</option>
                         </select>
                     </div>
@@ -343,10 +359,13 @@
                             <option value="ALL">พนักงานรับรถทุกคน</option>
                         </select>
                     </div>
-                    <div class="action-group" style="border-right: none">
+                    <div class="action-group" style="border-right: none;">
                         <strong>ค้นหา:</strong>
-                        <input type="text" id="promo_search" placeholder="เลขที่ใบสั่งซ่อม..."
-                            onkeyup="loadPromotionJobs()" class="width-220px" />
+                        <input type="text" id="promo_search" placeholder="ค้นหาใบงาน, ชื่อลูกค้า, ทะเบียน..."
+                            onkeyup="if(event.key === 'Enter') loadPromotionJobs()"
+                            style="width: 250px; padding: 6px; border: 1px solid #ccc; border-radius: 4px;" />
+                        <button class="action-btn btn-dark btn-sm" onclick="loadPromotionJobs()"
+                            style="margin: 0 0 0 5px; padding: 6px 12px;">ค้นหา</button>
                     </div>
                 </div>
                 <div class="action-bar background-light">
@@ -415,10 +434,13 @@
                             <option value="ALL">-- ทั้งหมด --</option>
                         </select>
                     </div>
-                    <div class="action-group" style="border-right: none">
+                    <div class="action-group" style="border-right: none;">
                         <strong>ค้นหา:</strong>
-                        <input type="text" id="apt_search" placeholder="ชื่อลูกค้า หรือใบสั่งซ่อม..."
-                            onkeyup="loadAppointments()" class="width-200px" />
+                        <input type="text" id="apt_search" placeholder="ค้นหาใบงาน, ชื่อลูกค้า, ทะเบียน..."
+                            onkeyup="if(event.key === 'Enter') loadAppointments()"
+                            style="width: 250px; padding: 6px; border: 1px solid #ccc; border-radius: 4px;" />
+                        <button class="action-btn btn-dark btn-sm" onclick="loadAppointments()"
+                            style="margin: 0 0 0 5px; padding: 6px 12px;">ค้นหา</button>
                     </div>
                 </div>
                 <div class="overflow-x-auto max-height-60vh">
@@ -491,6 +513,69 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+        <div id="content-parts-prep" class="tab-content">
+            <div class="section">
+                <div class="section-title">
+                    รายการงานที่ต้องสั่งอะไหล่ล่วงหน้า (คำนวณก่อนวันนัดหมาย 3 วันอัตโนมัติ)
+                    <button class="action-btn btn-dark btn-sm" onclick="loadPartsPrep()" style="margin-left: auto;">
+                        รีเฟรชข้อมูล
+                    </button>
+                </div>
+
+                <div class="action-bar row-gap-15" style="background: white;">
+                    <div class="action-group" style="border-right: none;">
+                        <strong>ช่วงวันที่เตรียมสั่งอะไหล่:</strong>
+                        <input type="date" id="parts_filter_start" onchange="loadPartsPrep()" />
+                        <span style="margin: 0 10px;">ถึง</span>
+                        <input type="date" id="parts_filter_end" onchange="loadPartsPrep()" />
+                    </div>
+
+                    <div class="action-group" style="border-right: none;">
+                        <strong>ค้นหา:</strong>
+                        <input type="text" id="parts_search" placeholder="ใบงาน, ชื่อ, ทะเบียน, เลขอะไหล่..."
+                            onkeyup="if(event.key === 'Enter') loadPartsPrep()"
+                            style="width: 250px; padding: 6px; border: 1px solid #ccc; border-radius: 4px;" />
+                        <button class="action-btn btn-dark btn-sm" onclick="loadPartsPrep()"
+                            style="margin: 0 0 0 5px; padding: 6px 12px;">ค้นหา</button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>วันที่นัดหมาย</th>
+                                <th>เลขที่ใบสั่งซ่อม</th>
+                                <th>ชื่อลูกค้า</th>
+                                <th>เบอร์โทรศัพท์</th>
+                                <th>ทะเบียนรถ</th>
+                                <th style="text-align: center; width: 150px;">การทำงาน</th>
+                            </tr>
+                        </thead>
+                        <tbody id="parts_prep_body">
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 20px; color: #999;">
+                                    กรุณาเลือกช่วงวันที่ต้องการตรวจเช็คอะไหล่
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="partsModal">
+        <div class="modal-content" style="width: 850px;">
+            <div class="modal-header">
+                <h3 class="margin-0 color-dark" id="parts_modal_title">
+                    รายละเอียดการใช้ อะไหล่
+                </h3>
+                <button class="close-btn" onclick="closePartsModal()">X</button>
+            </div>
+            <div id="parts_modal_body" style="padding: 0; overflow-y: auto; flex-grow: 1;">
             </div>
         </div>
     </div>

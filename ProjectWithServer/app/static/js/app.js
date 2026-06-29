@@ -112,8 +112,7 @@ function switchTab(tabId) {
 
   const sharedFilter = document.querySelector(".shared-filter");
   if (sharedFilter) {
-    // ปรับเงื่อนไข: ให้ซ่อน Shared Filter ทั้งในหน้าจัดการระบบ (upload) และหน้านัดหมายลูกค้า (appointments)
-    sharedFilter.style.display = (tabId === "upload" || tabId === "appointments") ? "none" : "flex";
+    sharedFilter.style.display = (tabId === "upload" || tabId === "appointments" || tabId === "parts-prep") ? "none" : "flex";
   }
 
   const target = document.getElementById("content-" + tabId);
@@ -122,10 +121,10 @@ function switchTab(tabId) {
   if (tabId === "workspace") loadWorkspace();
   if (tabId === "dashboard") updateDashboard();
   if (tabId === "promotion") loadPromotionJobs();
-  if (tabId === "appointments") {
-    // นำ refreshSharedYearOptionsFromDB() ออกได้เลย เพราะหน้านี้ใช้ตัวกรองวันที่แยกของตัวเองแล้ว
-    loadAppointments();
-  }
+  if (tabId === "appointments") loadAppointments();
+
+  // เพิ่มส่วนนี้เพื่อโหลดข้อมูลของแท็บเตรียมสั่งอะไหล่
+  if (tabId === "parts-prep") loadPartsPrep();
 
   document.getElementById("tab-btn-" + tabId).classList.add("active");
 }
@@ -303,19 +302,44 @@ async function updateDashboard() {
 
 async function updateRejectionDashboard(start, end) {
   const container = document.getElementById("rejection_summary_body");
-  const rows = await runQuery(
-    `SELECT notes, call_time FROM Follow_Ups WHERE notes LIKE '%[เหตุผล: %'`,
-  );
+  
+  // ปรับคิวรีให้เชื่อมตาราง Job_Orders เพื่อดึง job_order_date แทน call_time
+  const rows = await runQuery(`
+    SELECT f.notes, jo.job_order_date 
+    FROM Follow_Ups f
+    JOIN Job_Orders jo ON f.job_order_no = jo.job_order_no
+    WHERE f.notes LIKE '%[เหตุผล: %'
+  `);
+  
   const reasonCounts = {};
 
   rows.forEach((row) => {
-    let ct = row[1] || "";
+    let jDate = row[1] || "";
     let inRange = true;
-    if (ct) {
-      let ym = ct.substring(0, 7);
-      if (start && ym < start) inRange = false;
-      if (end && ym > end) inRange = false;
+    let ym = "";
+
+    // ปรับลอจิกแปลงรูปแบบวันที่ของ job_order_date ให้เป็น YYYY-MM
+    if (jDate) {
+      let parts = jDate.split(/[-/]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          ym = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+        } else if (parts[2].length === 4) {
+          ym = `${parts[2]}-${parts[1].padStart(2, "0")}`;
+        }
+      }
     }
+
+    // ตรวจสอบเงื่อนไขตามช่วงวันที่ที่เลือก
+    if (start || end) {
+      if (!ym) {
+        inRange = false;
+      } else {
+        if (start && ym < start) inRange = false;
+        if (end && ym > end) inRange = false;
+      }
+    }
+
     if (inRange) {
       const match = String(row[0]).match(/\[เหตุผล: (.*?)\]/);
       if (match && match[1]) {
@@ -325,17 +349,17 @@ async function updateRejectionDashboard(start, end) {
     }
   });
 
-  const sortedReasons = Object.entries(reasonCounts).sort(
-    (a, b) => b[1] - a[1],
-  );
+  const sortedReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]);
+  
   if (sortedReasons.length === 0) {
     container.innerHTML = `<tr><td colspan="2" style="text-align: center; color: #999; padding: 20px;">ไม่มีข้อมูลการปฏิเสธในช่วงที่เลือก</td></tr>`;
     return;
   }
+  
   container.innerHTML = sortedReasons
     .map(
       ([reason, count]) =>
-        `<tr><td style="font-size: 0.95em; font-weight: 600; color: var(--tmt-dark);">${reason}</td><td style="text-align: center;"><span class="badge badge-red" style="min-width: 40px;">${count}</span></td></tr>`,
+        `<tr><td style="font-size: 0.95em; font-weight: 600; color: var(--tmt-dark);">${reason}</td><td style="text-align: center;"><span class="badge badge-red" style="min-width: 40px;">${count}</span></td></tr>`
     )
     .join("");
 }
@@ -443,7 +467,6 @@ async function loadWorkspace() {
 
   tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px;">กำลังโหลด...</td></tr>`;
 
-  // เพิ่ม LEFT JOIN Vehicles v เพื่อดึงเลขทะเบียนรถ (v.vehicle_registration_no)
   const sql = `
                 SELECT
                     jo.job_order_no, jo.job_order_date, c.contact_name, c.tel_no, e.employee_name, f.next_contact_date,
@@ -482,16 +505,14 @@ async function loadWorkspace() {
       let cTel = (r[3] || "").toLowerCase();
       let nextDate = r[5];
       let cRejPending = r[7];
-      let licensePlate = (r[13] || "").toLowerCase(); // ดึงค่าเลขทะเบียนรถจาก SQL Index ที่ 13
+      let licensePlate = (r[13] || "").toLowerCase();
 
       let rowYm = "";
       if (jDate) {
         let parts = jDate.split(/[-/]/);
         if (parts.length === 3) {
-          if (parts[0].length === 4)
-            rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
-          else if (parts[2].length === 4)
-            rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
+          if (parts[0].length === 4) rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+          else if (parts[2].length === 4) rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
         }
       }
 
@@ -504,18 +525,22 @@ async function loadWorkspace() {
         }
       }
 
-      let isOverdue = cRejPending > 0 && nextDate && nextDate < todayStr;
-      let isCalledToday = cRejPending > 0 && r[11] && r[11].trim() !== "";
-      let noDateSet = cRejPending > 0 && (!nextDate || nextDate === "");
+      // เพิ่มการเช็คผลการโทรของความพยายามรอบล่าสุด
+      let callResult = r[11] || "";
+      let isCalled = callResult.trim() !== "";
 
+      // หมวดหมู่และเงื่อนไขการกรองแบบใหม่
       let matchStatus = true;
-      if (statusFilter === "PENDING") matchStatus = cRejPending > 0;
-      else if (statusFilter === "COMPLETED") matchStatus = cRejPending === 0;
-      else if (statusFilter === "OVERDUE") matchStatus = isOverdue;
-      else if (statusFilter === "CALLED_TODAY") matchStatus = isCalledToday;
-      else if (statusFilter === "NO_CONTACT_SET") matchStatus = noDateSet;
+      if (statusFilter === "PENDING") {
+        // รอดำเนินการ = ไม่มีวันโทร หรือ มีวันโทรแต่โทรไปแล้ว (ยังไม่ได้ตั้งวันใหม่)
+        matchStatus = cRejPending > 0 && (!nextDate || nextDate === "" || isCalled);
+      } else if (statusFilter === "TO_CALL") {
+        // ต้องโทรติดตาม = มีวันโทร และ ต้องยังไม่ได้ทำการโทรเท่านั้น
+        matchStatus = cRejPending > 0 && (nextDate && nextDate !== "" && !isCalled);
+      } else if (statusFilter === "COMPLETED") {
+        matchStatus = cRejPending === 0;
+      }
 
-      // เพิ่มเงื่อนไขค้นหาด้วย licensePlate.includes(searchText)
       let matchSearch =
         !searchText ||
         jobNo.includes(searchText) ||
@@ -528,16 +553,17 @@ async function loadWorkspace() {
     .sort((a, b) => {
       const hasDateA = a[5] && a[5] !== "" && a[5] !== "9999-12-31";
       const hasDateB = b[5] && b[5] !== "" && b[5] !== "9999-12-31";
+
+      // ดันงานที่มีวันโทรติดตามขึ้นบนสุด เรียงจากอดีต -> อนาคต
+      if (hasDateA && hasDateB) return (a[5] || "").localeCompare(b[5] || "");
       if (hasDateA && !hasDateB) return -1;
       if (!hasDateA && hasDateB) return 1;
-      if (hasDateA && hasDateB)
-        return (a[5] || "9999-12-31").localeCompare(b[5] || "9999-12-31");
+
+      // งานที่ไม่มีวันโทร ให้เรียงตามวันที่ใบสั่งซ่อมจากใหม่ -> เก่า
       const toISO = (d) => {
         if (!d) return "";
         const p = d.split(/[-/]/);
-        return p[2].length === 4
-          ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`
-          : d;
+        return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
       };
       return toISO(b[1]).localeCompare(toISO(a[1]));
     });
@@ -545,9 +571,7 @@ async function loadWorkspace() {
   const toISODate = (d) => {
     if (!d) return "-";
     const p = d.split(/[-/]/);
-    return p[2].length === 4
-      ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`
-      : d;
+    return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
   };
 
   if (rowsData.length === 0) {
@@ -593,7 +617,8 @@ async function loadWorkspace() {
       }
 
       let tr = document.createElement("tr");
-      if (isOverdue && statusFilter === "PENDING") tr.className = "overdue";
+      // ถ้าสถานะเป็น TO_CALL แล้วยังเกินกำหนด ให้ไฮไลท์แดง
+      if (isOverdue && statusFilter === "TO_CALL") tr.className = "overdue";
       tr.setAttribute("onclick", "handleRowClick(event, 'row-checkbox')");
       tr.style.cursor = "pointer";
 
@@ -629,19 +654,14 @@ async function loadWorkspace() {
     });
   };
   renderWSRows(rowsData.slice(0, 50));
-  if (rowsData.length > 50)
-    setTimeout(() => renderWSRows(rowsData.slice(50)), 10);
+  if (rowsData.length > 50) setTimeout(() => renderWSRows(rowsData.slice(50)), 10);
 }
 
 async function loadPromotionJobs() {
   const shared = getSharedDateFilters();
-  const searchText = (
-    document.getElementById("promo_search")?.value || ""
-  ).toLowerCase();
-  const sheetFilter =
-    document.getElementById("promo_sheet_filter")?.value || "ALL";
-  const statusFilter =
-    document.getElementById("promo_status_filter")?.value || "ALL";
+  const searchText = (document.getElementById("promo_search")?.value || "").toLowerCase();
+  const sheetFilter = document.getElementById("promo_sheet_filter")?.value || "ALL";
+  const statusFilter = document.getElementById("promo_status_filter")?.value || "ALL";
   const saFilter = document.getElementById("promo_sa_filter")?.value || "ALL";
 
   const promoCheckAll = document.getElementById("promo_check_all");
@@ -649,11 +669,8 @@ async function loadPromotionJobs() {
 
   updatePromoSheetDropdown(sheetFilter);
   let sheetClause =
-    sheetFilter !== "ALL"
-      ? ` AND pp.source_sheet = '${sheetFilter.replace(/'/g, "''")}'`
-      : "";
+    sheetFilter !== "ALL" ? ` AND pp.source_sheet = '${sheetFilter.replace(/'/g, "''")}'` : "";
 
-  // เพิ่ม LEFT JOIN Vehicles v เพื่อดึงข้อมูลเลขทะเบียนรถในหน้างานโปรโมชันด้วย
   const sql = `
                 SELECT
                     jo.job_order_no, jo.job_order_date, c.contact_name, c.tel_no, e.employee_name, f.next_contact_date,
@@ -674,8 +691,6 @@ async function loadPromotionJobs() {
                 LEFT JOIN Follow_Ups f ON fm.job_order_no = f.job_order_no AND fm.max_att = f.attempt_number
                 WHERE 1=1 ${sheetClause}
                 GROUP BY jo.job_order_no
-                ORDER BY CASE WHEN f.next_contact_date IS NOT NULL AND f.next_contact_date != '' THEN 0 ELSE 1 END,
-                    f.next_contact_date ASC, substr(jo.job_order_date,7,4)||substr(jo.job_order_date,4,2)||substr(jo.job_order_date,1,2) DESC
             `;
 
   const tbody = document.getElementById("promo_job_body");
@@ -689,8 +704,7 @@ async function loadPromotionJobs() {
   }
 
   updatePromoSADropdown(saFilter, rows);
-  const effectiveSaFilter =
-    document.getElementById("promo_sa_filter")?.value || "ALL";
+  const effectiveSaFilter = document.getElementById("promo_sa_filter")?.value || "ALL";
   const effectiveSaFilterNorm = effectiveSaFilter.toLowerCase();
   const todayStr = new Date().toISOString().split("T")[0];
 
@@ -700,17 +714,16 @@ async function loadPromotionJobs() {
     const cName = (r[2] || "").toLowerCase();
     const cTel = (r[3] || "").toLowerCase();
     const saName = (r[4] || "").toLowerCase();
+    const nextDate = r[5] || "";
     const cRejPending = r[7] || 0;
-    const licensePlate = (r[13] || "").toLowerCase(); // ดึงค่าเลขทะเบียนรถ Index ที่ 13
+    const licensePlate = (r[13] || "").toLowerCase();
 
     let rowYm = "";
     if (jDate) {
       let parts = jDate.split(/[-/]/);
       if (parts.length === 3) {
-        if (parts[0].length === 4)
-          rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
-        else if (parts[2].length === 4)
-          rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
+        if (parts[0].length === 4) rowYm = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+        else if (parts[2].length === 4) rowYm = `${parts[2]}-${parts[1].padStart(2, "0")}`;
       }
     }
 
@@ -723,7 +736,6 @@ async function loadPromotionJobs() {
       }
     }
 
-    // เพิ่มเงื่อนไขค้นหาด้วย licensePlate.includes(searchText)
     let matchSearch =
       !searchText ||
       jobNo.includes(searchText) ||
@@ -732,21 +744,48 @@ async function loadPromotionJobs() {
       saName.includes(searchText) ||
       licensePlate.includes(searchText);
 
+    // เพิ่มการเช็คผลการโทรของความพยายามรอบล่าสุด
+    let callResult = r[11] || "";
+    let isCalled = callResult.trim() !== "";
+
+    // หมวดหมู่และเงื่อนไขการกรองแบบใหม่ (Promotion)
     let matchStatus = true;
-    if (statusFilter === "PENDING") matchStatus = cRejPending > 0;
-    else if (statusFilter === "COMPLETED") matchStatus = cRejPending === 0;
-    let matchSa =
-      effectiveSaFilter === "ALL" || saName === effectiveSaFilterNorm;
+    if (statusFilter === "PENDING") {
+      // รอดำเนินการ = ไม่มีวันโทร หรือ มีวันโทรแต่โทรไปแล้ว (ยังไม่ได้ตั้งวันใหม่)
+      matchStatus = cRejPending > 0 && (!nextDate || nextDate === "" || isCalled);
+    } else if (statusFilter === "TO_CALL") {
+      // ต้องโทรติดตาม = มีวันโทร และ ต้องยังไม่ได้ทำการโทรเท่านั้น
+      matchStatus = cRejPending > 0 && (nextDate && nextDate !== "" && !isCalled);
+    } else if (statusFilter === "COMPLETED") {
+      matchStatus = cRejPending === 0;
+    }
+
+    let matchSa = effectiveSaFilter === "ALL" || saName === effectiveSaFilterNorm;
 
     return matchDate && matchSearch && matchStatus && matchSa;
+  });
+
+  // จัดเรียงลำดับใหม่ให้งานโปรโมชั่น
+  rows.sort((a, b) => {
+    const hasDateA = a[5] && a[5] !== "" && a[5] !== "9999-12-31";
+    const hasDateB = b[5] && b[5] !== "" && b[5] !== "9999-12-31";
+
+    if (hasDateA && hasDateB) return (a[5] || "").localeCompare(b[5] || "");
+    if (hasDateA && !hasDateB) return -1;
+    if (!hasDateA && hasDateB) return 1;
+
+    const toISO = (d) => {
+      if (!d) return "";
+      const p = d.split(/[-/]/);
+      return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
+    };
+    return toISO(b[1]).localeCompare(toISO(a[1]));
   });
 
   const toISODate = (d) => {
     if (!d) return "-";
     const p = d.split(/[-/]/);
-    return p[2].length === 4
-      ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`
-      : d;
+    return p[2].length === 4 ? `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}` : d;
   };
 
   if (!rows.length) {
@@ -812,7 +851,7 @@ async function loadPromotionJobs() {
         : `<label class="custom-checkbox"><input type="checkbox" class="promo-row-checkbox" value="${jobNo}" data-attempt="${attempt}" data-cname="${cName}"><span class="checkmark"></span></label>`;
 
       const tr = document.createElement("tr");
-      if (isOverdue && statusFilter === "PENDING") tr.className = "overdue";
+      if (isOverdue && statusFilter === "TO_CALL") tr.className = "overdue";
       tr.setAttribute("onclick", "handleRowClick(event, 'promo-row-checkbox')");
       tr.style.cursor = "pointer";
       tr.innerHTML = `
@@ -1009,57 +1048,41 @@ async function exportAppointmentsToExcel() {
   else if (aptEnd) dateFilterName = `ถึง_${aptEnd}`;
 
   // สร้างเงื่อนไข Query ช่วงวันที่
-  let dateCondition = "";
-  if (aptStart) dateCondition += ` AND substr(f.appointment_date, 1, 10) >= '${aptStart}'`;
-  if (aptEnd) dateCondition += ` AND substr(f.appointment_date, 1, 10) <= '${aptEnd}'`;
-
   const sql = `
                 SELECT
-                    f.appointment_date AS [Appointment Date], f.job_order_no AS [Job No], c.contact_name AS [Customer Name],
-                    c.tel_no AS [Telephone], v.vehicle_registration_no AS [License Plate], v.model AS [Model],
-                    e.employee_name AS [SA Name], ji.operation_part_no AS [Part No], op.operation_description AS [Description],
-                    f.notes AS [SA Remarks], ji.item_type, ji.flat_rate_qty
+                    f.appointment_date, f.job_order_no, c.contact_name, c.tel_no, e.employee_name, f.notes, f.call_time, jo.job_order_date,
+                       v.vehicle_registration_no
                 FROM Follow_Ups f
-                JOIN Job_Orders jo ON f.job_order_no = jo.job_order_no LEFT JOIN Customers c ON jo.customer_id = c.customer_id
-                LEFT JOIN Vehicles v ON jo.vin_no = v.vin_no LEFT JOIN Employees e ON jo.employee_id = e.employee_id
-                JOIN Job_Order_Items ji ON jo.job_order_no = ji.job_order_no LEFT JOIN Operations_Parts op ON ji.operation_part_no = op.operation_part_no
-                WHERE f.appointment_date IS NOT NULL AND f.appointment_date <> '' AND ji.sa_status = 'APPROVED'
-                ${dateCondition}
-                ORDER BY f.appointment_date ASC, f.job_order_no ASC
+                JOIN Job_Orders jo ON f.job_order_no = jo.job_order_no
+                LEFT JOIN Customers c ON jo.customer_id = c.customer_id
+                LEFT JOIN Employees e ON jo.employee_id = e.employee_id
+                LEFT JOIN Vehicles v ON jo.vin_no = v.vin_no
+                WHERE f.appointment_date IS NOT NULL AND f.appointment_date <> ''
+                ORDER BY f.appointment_date ASC
             `;
   const rows = await runQuery(sql);
   if (rows.length === 0)
     return showToast("ไม่มีข้อมูลนัดหมายให้ส่งออก", "warning");
 
   const headers = [
-    "วันที่นัดหมาย",
+    "วันเวลาที่นัดหมาย",
     "เลขที่ใบสั่งซ่อม",
     "ชื่อลูกค้า",
     "โทรศัพท์",
     "ทะเบียนรถ",
-    "รุ่นรถ",
     "ชื่อพนักงานรับรถ",
-    "เลขอะไหล่",
-    "รายละเอียด",
-    "หมายเหตุพนักงานรับรถ",
+    "หมายเหตุ",
   ];
 
   const processedRows = rows.map(r => {
-    let desc = r[8] || "-";
-    if (r[10] === 'P' && r[11] && parseFloat(r[11]) > 0) {
-      desc = `${desc} (${parseFloat(r[11])} ชิ้น)`.trim();
-    }
     return [
       r[0], // วันที่นัดหมาย
       r[1], // เลขที่ใบสั่งซ่อม
       r[2], // ชื่อลูกค้า
       r[3], // โทรศัพท์
-      r[4], // ทะเบียนรถ
-      r[5], // รุ่นรถ
-      r[6], // ชื่อพนักงานรับรถ
-      r[7], // เลขอะไหล่
-      desc, // รายละเอียด
-      r[9]  // หมายเหตุพนักงานรับรถ
+      r[8], // ทะเบียนรถ
+      r[4] || "-", // ชื่อพนักงานรับรถ
+      r[5] || "-", // หมายเหตุพนักงานรับรถ
     ];
   });
 
@@ -1080,6 +1103,18 @@ function exportWorkspaceToExcel() {
   }
   const wb = XLSX.utils.table_to_book(cloneTable, { sheet: "รายการติดตาม" });
   XLSX.writeFile(wb, "รายการติดตามพนักงานรับรถ.xlsx");
+  showToast("ส่งออกเป็น Excel สำเร็จ", "success");
+}
+
+function exportPromotionToExcel() {
+  const table = document.getElementById("promo_job_table");
+  const cloneTable = table.cloneNode(true);
+  for (let i = 0; i < cloneTable.rows.length; i++) {
+    cloneTable.rows[i].deleteCell(6);
+    cloneTable.rows[i].deleteCell(0);
+  }
+  const wb = XLSX.utils.table_to_book(cloneTable, { sheet: "รายการติดตาม" });
+  XLSX.writeFile(wb, "รายการติดตามพนักงานรับรถ อะไหล่โปรโมชัน.xlsx");
   showToast("ส่งออกเป็น Excel สำเร็จ", "success");
 }
 
@@ -1109,7 +1144,8 @@ async function showAppointmentDetails(jobNo, cName) {
                     ji.sa_status,
                     ji.item_type,
                     CASE WHEN pp.part_no IS NOT NULL THEN 1 ELSE 0 END AS is_promo,
-                    ji.flat_rate_qty
+                    ji.flat_rate_qty,
+                    ji.operation_part_no_raw
                 FROM Job_Order_Items ji
                 LEFT JOIN Operations_Parts op ON ji.operation_part_no = op.operation_part_no
                 LEFT JOIN Promotion_Parts pp ON ji.operation_part_no = pp.part_no
@@ -1133,11 +1169,14 @@ async function showAppointmentDetails(jobNo, cName) {
     if (itemsRes.length > 0) {
       html += `<table class="data-table"><thead><tr><th style="width:80px; text-align:center;">ประเภท</th><th>เลขอะไหล่ / รายละเอียด</th></tr></thead><tbody>`;
       itemsRes.forEach((item) => {
-        const partNo = item[0] || "-";
+        const partNoNormal = item[0] || "-";
         const description = item[1] || "-";
         const itemType = item[3] || "";
         const isPromo = item[4] === 1;
         const flatQty = parseFloat(item[5]) || 0;
+        const partNoRaw = item[6] || "";
+
+        const partNo = partNoRaw || partNoNormal;
 
         // ปรับปรุง: ตรวจสอบและแสดงจำนวนชิ้นกรณีที่เป็นประเภทอะไหล่ (P) เท่านั้น
         let qtyText = (itemType === "P" && flatQty > 0) ? ` (${flatQty} ชิ้น)` : "";
@@ -1835,3 +1874,248 @@ document.getElementById("btn_import_promo").onclick = function () {
   };
   reader.readAsArrayBuffer(file);
 };
+
+// ==========================================================================
+// ฟีเจอร์: ระบบตรวจเช็คและเตรียมสั่งอะไหล่ล่วงหน้า (แสดงผลแบบรายใบสั่งซ่อม)
+// ==========================================================================
+
+function addWorkingDaysToDateStr(dateStr, days) {
+  if (!dateStr) return "";
+  let date = new Date(dateStr);
+  let addedDays = 0;
+  while (addedDays < days) {
+    date.setDate(date.getDate() + 1);
+    // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    if (date.getDay() !== 0) { // Check if it's not Sunday
+      addedDays++;
+    }
+  }
+  let y = date.getFullYear();
+  let m = String(date.getMonth() + 1).padStart(2, '0');
+  let d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function loadPartsPrep() {
+  const filterStart = document.getElementById("parts_filter_start")?.value || "";
+  const filterEnd = document.getElementById("parts_filter_end")?.value || "";
+  // ดึงค่าจากช่องค้นหา (ถ้ามี) และแปลงเป็นพิมพ์เล็กทั้งหมดเพื่อเทียบข้อมูล
+  const searchText = (document.getElementById("parts_search")?.value || "").toLowerCase();
+  
+  const tbody = document.getElementById("parts_prep_body");
+
+  if (!tbody) return;
+
+  if (!filterStart) {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById("parts_filter_start").value = today;
+    document.getElementById("parts_filter_end").value = today;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">กำลังโหลดข้อมูล...</td></tr>`;
+    setTimeout(loadPartsPrep, 10);
+    return;
+  }
+
+  const queryStart = addWorkingDaysToDateStr(filterStart, 3);
+  const queryEnd = addWorkingDaysToDateStr(filterEnd, 3);
+
+  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">กำลังโหลดข้อมูลนัดหมายวันที่ ${queryStart} ถึง ${queryEnd}...</td></tr>`;
+
+  let sql = `
+    SELECT 
+        jo.job_order_no,
+        f.appointment_date,
+        c.contact_name,
+        c.tel_no,
+        v.vehicle_registration_no,
+        ji.operation_part_no,
+        op.operation_description,
+        ji.flat_rate_qty,
+        ji.operation_part_no_raw
+    FROM Job_Order_Items ji
+    JOIN Job_Orders jo ON ji.job_order_no = jo.job_order_no
+    LEFT JOIN Operations_Parts op ON ji.operation_part_no = op.operation_part_no
+    LEFT JOIN Customers c ON jo.customer_id = c.customer_id
+    LEFT JOIN Vehicles v ON jo.vin_no = v.vin_no
+    JOIN Follow_Ups f ON jo.job_order_no = f.job_order_no
+    WHERE ji.item_type = 'P' 
+      AND ji.sa_status = 'APPROVED'
+      AND f.appointment_date IS NOT NULL 
+      AND f.appointment_date <> ''
+  `;
+
+  if (queryStart) sql += ` AND substr(f.appointment_date, 1, 10) >= '${queryStart}'`;
+  if (queryEnd) sql += ` AND substr(f.appointment_date, 1, 10) <= '${queryEnd}'`;
+  sql += ` ORDER BY f.appointment_date ASC, jo.job_order_no ASC`;
+
+  const rows = await runQuery(sql);
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#999;">ไม่พบรายการใบสั่งซ่อมที่มีการใช้ชิ้นส่วนอะไหล่ในช่วงวันนัดหมายดังกล่าว</td></tr>`;
+    return;
+  }
+
+  const jobsMap = {};
+  rows.forEach((row) => {
+    const jobNo = row[0];
+    const apptDateFull = row[1] || "-";
+    const customerName = row[2] || "-";
+    const telNo = row[3] || "-";
+    const regNo = row[4] || "-";
+    const partNoNormal = row[5];
+    const partDesc = row[6] || "ไม่มีข้อมูลชื่ออะไหล่";
+    const qty = parseFloat(row[7]) || 0;
+    const partNoRaw = row[8] || "";
+
+    const partNo = partNoRaw || partNoNormal;
+
+    if (!jobsMap[jobNo]) {
+      jobsMap[jobNo] = {
+        jobNo: jobNo,
+        apptDate: apptDateFull,
+        customerName: customerName,
+        telNo: telNo,
+        regNo: regNo,
+        parts: []
+      };
+    }
+    
+    jobsMap[jobNo].parts.push({
+      partNo: partNo,
+      partDesc: partDesc,
+      qty: qty
+    });
+  });
+
+  window.partsPrepCache = jobsMap;
+  tbody.innerHTML = "";
+  let matchCount = 0;
+
+  Object.keys(jobsMap).forEach((jobNo) => {
+    const item = jobsMap[jobNo];
+    
+    // --- ลอจิกการค้นหา (เช็คเงื่อนไขตรงนี้) ---
+    let matchSearch = true;
+    if (searchText) {
+      matchSearch = 
+        item.jobNo.toLowerCase().includes(searchText) ||
+        item.customerName.toLowerCase().includes(searchText) ||
+        item.telNo.toLowerCase().includes(searchText) ||
+        item.regNo.toLowerCase().includes(searchText) ||
+        // ค้นหาลึกเข้าไปถึงเลขอะไหล่และชื่ออะไหล่ในงานซ่อมนั้นๆ ด้วย
+        item.parts.some(p => p.partNo.toLowerCase().includes(searchText) || p.partDesc.toLowerCase().includes(searchText));
+    }
+
+    if (!matchSearch) return; // ถ้ารายการนี้ไม่ตรงกับคำค้นหา ให้ข้ามไปไม่ต้องวาดแถว
+    // ------------------------------------
+
+    matchCount++;
+    const tr = document.createElement("tr");
+    const displayDate = item.apptDate.split(" ")[0];
+
+    tr.innerHTML = `
+        <td style="font-weight:700; color:var(--tmt-blue);">${displayDate}</td>
+        <td><strong>${item.jobNo}</strong></td>
+        <td>${item.customerName}</td>
+        <td>${item.telNo}</td>
+        <td style="font-weight:700; color:var(--tmt-red);">${item.regNo}</td>
+        <td style="text-align:center;">
+            <button class="action-btn btn-dark btn-sm" onclick="showPartsDetailModal('${escapeHtmlAttr(item.jobNo)}')">
+                ดูรายละเอียด
+            </button>
+        </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // ถ้าค้นหาแล้วไม่เจอรายการใดเลย ให้แสดงข้อความแจ้งเตือน
+  if (matchCount === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#999;">ไม่พบรายการที่ตรงกับคำค้นหา "${searchText}"</td></tr>`;
+  }
+}
+
+function showPartsDetailModal(jobNo) {
+  const item = window.partsPrepCache ? window.partsPrepCache[jobNo] : null;
+  if (!item) return;
+
+  document.getElementById("parts_modal_title").innerText = `รายการอะไหล่สำหรับใบสั่งซ่อม: ${item.jobNo}`;
+  const modalBody = document.getElementById("parts_modal_body");
+  
+  let totalParts = 0;
+  
+  let html = `
+    <div style="padding:20px; background:#f8f9fa; border-bottom:1px solid var(--tmt-border); display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div><strong>ลูกค้า:</strong> ${item.customerName}</div>
+        <div><strong>โทรศัพท์:</strong> <span style="color:var(--tmt-blue); font-weight:600;">${item.telNo}</span></div>
+        <div><strong>ทะเบียนรถ:</strong> <span style="color:var(--tmt-red); font-weight:700;">${item.regNo}</span></div>
+        <div><strong>วันเวลาที่นัดหมาย:</strong> ${item.apptDate}</div>
+    </div>
+    <table class="data-table" style="margin:0; border:none;">
+        <thead>
+            <tr>
+                <th>เลขอะไหล่</th>
+                <th>ชื่ออะไหล่ / รายละเอียด</th>
+                <th style="text-align:center; width:120px;">จำนวน (ชิ้น)</th>
+            </tr>
+        </thead>
+        <tbody>
+  `;
+
+  item.parts.forEach((part) => {
+    totalParts += part.qty; 
+    html += `
+        <tr>
+            <td style="font-weight:700; color:var(--tmt-blue);">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    ${part.partNo}
+                    <button class="action-btn btn-sm" style="margin: 0; padding: 2px 8px; font-size: 0.8em; background-color: #e0e0e0; color: #333; border: 1px solid #ccc; box-shadow: none;" onclick="copyToClipboardText('${part.partNo}')">คัดลอก</button>
+                </div>
+            </td>
+            <td>${part.partDesc}</td>
+            <td style="text-align:center; font-weight:700;">${part.qty}</td>
+        </tr>
+    `;
+  });
+
+  html += `
+        <tr style="background-color: #eef2f5;">
+            <td colspan="2" style="text-align:right; font-weight:700;">รวมจำนวนอะไหล่ทั้งหมดที่ต้องเบิก:</td>
+            <td style="text-align:center; font-weight:700; color:var(--tmt-red); font-size:1.1em;">${totalParts}</td>
+        </tr>
+        </tbody>
+    </table>`;
+  
+  modalBody.innerHTML = html;
+  document.getElementById("partsModal").style.display = "flex";
+}
+
+function closePartsModal() {
+  document.getElementById("partsModal").style.display = "none";
+}
+
+// ฟังก์ชันสำหรับคัดลอกข้อความลงคลิปบอร์ด
+function copyToClipboardText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`คัดลอกเลขอะไหล่ ${text} สำเร็จ`, "success");
+    }).catch(err => {
+      showToast("ไม่สามารถคัดลอกได้", "error");
+    });
+  } else {
+    // โหมดสำรองกรณีเบราว์เซอร์เก่าหรือไม่ใช่ HTTPS
+    let textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      showToast(`คัดลอกเลขอะไหล่ ${text} สำเร็จ`, "success");
+    } catch (err) {
+      showToast("ไม่สามารถคัดลอกได้", "error");
+    }
+    textArea.remove();
+  }
+}
