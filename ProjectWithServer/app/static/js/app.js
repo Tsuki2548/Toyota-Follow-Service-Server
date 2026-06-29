@@ -1023,57 +1023,41 @@ async function exportAppointmentsToExcel() {
   else if (aptEnd) dateFilterName = `ถึง_${aptEnd}`;
 
   // สร้างเงื่อนไข Query ช่วงวันที่
-  let dateCondition = "";
-  if (aptStart) dateCondition += ` AND substr(f.appointment_date, 1, 10) >= '${aptStart}'`;
-  if (aptEnd) dateCondition += ` AND substr(f.appointment_date, 1, 10) <= '${aptEnd}'`;
-
   const sql = `
                 SELECT
-                    f.appointment_date AS [Appointment Date], f.job_order_no AS [Job No], c.contact_name AS [Customer Name],
-                    c.tel_no AS [Telephone], v.vehicle_registration_no AS [License Plate], v.model AS [Model],
-                    e.employee_name AS [SA Name], ji.operation_part_no AS [Part No], op.operation_description AS [Description],
-                    f.notes AS [SA Remarks], ji.item_type, ji.flat_rate_qty
+                    f.appointment_date, f.job_order_no, c.contact_name, c.tel_no, e.employee_name, f.notes, f.call_time, jo.job_order_date,
+                       v.vehicle_registration_no
                 FROM Follow_Ups f
-                JOIN Job_Orders jo ON f.job_order_no = jo.job_order_no LEFT JOIN Customers c ON jo.customer_id = c.customer_id
-                LEFT JOIN Vehicles v ON jo.vin_no = v.vin_no LEFT JOIN Employees e ON jo.employee_id = e.employee_id
-                JOIN Job_Order_Items ji ON jo.job_order_no = ji.job_order_no LEFT JOIN Operations_Parts op ON ji.operation_part_no = op.operation_part_no
-                WHERE f.appointment_date IS NOT NULL AND f.appointment_date <> '' AND ji.sa_status = 'APPROVED'
-                ${dateCondition}
-                ORDER BY f.appointment_date ASC, f.job_order_no ASC
+                JOIN Job_Orders jo ON f.job_order_no = jo.job_order_no
+                LEFT JOIN Customers c ON jo.customer_id = c.customer_id
+                LEFT JOIN Employees e ON jo.employee_id = e.employee_id
+                LEFT JOIN Vehicles v ON jo.vin_no = v.vin_no
+                WHERE f.appointment_date IS NOT NULL AND f.appointment_date <> ''
+                ORDER BY f.appointment_date ASC
             `;
   const rows = await runQuery(sql);
   if (rows.length === 0)
     return showToast("ไม่มีข้อมูลนัดหมายให้ส่งออก", "warning");
 
   const headers = [
-    "วันที่นัดหมาย",
+    "วันเวลาที่นัดหมาย",
     "เลขที่ใบสั่งซ่อม",
     "ชื่อลูกค้า",
     "โทรศัพท์",
     "ทะเบียนรถ",
-    "รุ่นรถ",
     "ชื่อพนักงานรับรถ",
-    "เลขอะไหล่",
-    "รายละเอียด",
-    "หมายเหตุพนักงานรับรถ",
+    "หมายเหตุ",
   ];
 
   const processedRows = rows.map(r => {
-    let desc = r[8] || "-";
-    if (r[10] === 'P' && r[11] && parseFloat(r[11]) > 0) {
-      desc = `${desc} (${parseFloat(r[11])} ชิ้น)`.trim();
-    }
     return [
       r[0], // วันที่นัดหมาย
       r[1], // เลขที่ใบสั่งซ่อม
       r[2], // ชื่อลูกค้า
       r[3], // โทรศัพท์
-      r[4], // ทะเบียนรถ
-      r[5], // รุ่นรถ
-      r[6], // ชื่อพนักงานรับรถ
-      r[7], // เลขอะไหล่
-      desc, // รายละเอียด
-      r[9]  // หมายเหตุพนักงานรับรถ
+      r[8], // ทะเบียนรถ
+      r[4] || "-", // ชื่อพนักงานรับรถ
+      r[5] || "-", // หมายเหตุพนักงานรับรถ
     ];
   });
 
@@ -1094,6 +1078,18 @@ function exportWorkspaceToExcel() {
   }
   const wb = XLSX.utils.table_to_book(cloneTable, { sheet: "รายการติดตาม" });
   XLSX.writeFile(wb, "รายการติดตามพนักงานรับรถ.xlsx");
+  showToast("ส่งออกเป็น Excel สำเร็จ", "success");
+}
+
+function exportPromotionToExcel() {
+  const table = document.getElementById("promo_job_table");
+  const cloneTable = table.cloneNode(true);
+  for (let i = 0; i < cloneTable.rows.length; i++) {
+    cloneTable.rows[i].deleteCell(6);
+    cloneTable.rows[i].deleteCell(0);
+  }
+  const wb = XLSX.utils.table_to_book(cloneTable, { sheet: "รายการติดตาม" });
+  XLSX.writeFile(wb, "รายการติดตามพนักงานรับรถ อะไหล่โปรโมชัน.xlsx");
   showToast("ส่งออกเป็น Excel สำเร็จ", "success");
 }
 

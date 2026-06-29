@@ -51,7 +51,7 @@
     <div class="container">
         <div class="nav-tabs">
             <button id="tab-btn-dashboard" class="active" onclick="handleTabSwitch('dashboard')">
-                ภาพรวมยอดขาย
+                ภาพรวมยอดเสนอ
             </button>
             <button id="tab-btn-workspace" onclick="handleTabSwitch('workspace')">
                 พื้นที่ทำงานพนักงานรับรถ
@@ -80,7 +80,7 @@
 
         <div id="content-dashboard" class="tab-content active">
             <div class="section">
-                <div class="section-title">ภาพรวมยอดขาย</div>
+                <div class="section-title">ภาพรวมยอดเสนอ</div>
                 <div class="action-bar" style="background: white">
                     <button class="action-btn btn-dark" onclick="updateDashboard()" style="margin-left: auto">
                         รีเฟรชข้อมูล
@@ -93,7 +93,7 @@
                                     font-weight: 700;
                                     font-size: 1.1em;
                                 ">
-                            ยอดขายรวม
+                            ยอดเสนอรวม
                         </div>
                         <h1 id="dash_total" style="margin: 5px 0; color: var(--tmt-dark)">
                             0.00 ฿
@@ -252,6 +252,10 @@
             <div class="section">
                 <div class="section-title">
                     งานติดตาม
+                    <button class="action-btn btn-success btn-sm" onclick="exportWorkspaceToExcel()"
+                        style="margin-left: auto; margin-right: 10px">
+                        ส่งออกเป็น Excel
+                    </button>
                     <button class="action-btn btn-dark btn-sm" onclick="loadWorkspace()">
                         รีเฟรชตาราง
                     </button>
@@ -325,6 +329,10 @@
             <div class="section">
                 <div class="section-title">
                     งานโปรโมชัน
+                    <button class="action-btn btn-success btn-sm" onclick="exportPromotionToExcel()"
+                        style="margin-left: auto; margin-right: 10px">
+                        ส่งออกเป็น Excel
+                    </button>
                     <button class="action-btn btn-dark btn-sm" onclick="loadPromotionJobs()">
                         รีเฟรชตาราง
                     </button>
