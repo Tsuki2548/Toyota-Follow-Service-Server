@@ -1854,10 +1854,17 @@ document.getElementById("btn_import_promo").onclick = function () {
 // ฟีเจอร์: ระบบตรวจเช็คและเตรียมสั่งอะไหล่ล่วงหน้า (แสดงผลแบบรายใบสั่งซ่อม)
 // ==========================================================================
 
-function addDaysToDateStr(dateStr, days) {
+function addWorkingDaysToDateStr(dateStr, days) {
   if (!dateStr) return "";
   let date = new Date(dateStr);
-  date.setDate(date.getDate() + days);
+  let addedDays = 0;
+  while (addedDays < days) {
+    date.setDate(date.getDate() + 1);
+    // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    if (date.getDay() !== 0) { // Check if it's not Sunday
+      addedDays++;
+    }
+  }
   let y = date.getFullYear();
   let m = String(date.getMonth() + 1).padStart(2, '0');
   let d = String(date.getDate()).padStart(2, '0');
@@ -1883,8 +1890,8 @@ async function loadPartsPrep() {
     return;
   }
 
-  const queryStart = addDaysToDateStr(filterStart, 3);
-  const queryEnd = addDaysToDateStr(filterEnd, 3);
+  const queryStart = addWorkingDaysToDateStr(filterStart, 3);
+  const queryEnd = addWorkingDaysToDateStr(filterEnd, 3);
 
   tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">กำลังโหลดข้อมูลนัดหมายวันที่ ${queryStart} ถึง ${queryEnd}...</td></tr>`;
 
