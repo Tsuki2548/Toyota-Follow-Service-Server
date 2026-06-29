@@ -302,19 +302,44 @@ async function updateDashboard() {
 
 async function updateRejectionDashboard(start, end) {
   const container = document.getElementById("rejection_summary_body");
-  const rows = await runQuery(
-    `SELECT notes, call_time FROM Follow_Ups WHERE notes LIKE '%[เหตุผล: %'`,
-  );
+  
+  // ปรับคิวรีให้เชื่อมตาราง Job_Orders เพื่อดึง job_order_date แทน call_time
+  const rows = await runQuery(`
+    SELECT f.notes, jo.job_order_date 
+    FROM Follow_Ups f
+    JOIN Job_Orders jo ON f.job_order_no = jo.job_order_no
+    WHERE f.notes LIKE '%[เหตุผล: %'
+  `);
+  
   const reasonCounts = {};
 
   rows.forEach((row) => {
-    let ct = row[1] || "";
+    let jDate = row[1] || "";
     let inRange = true;
-    if (ct) {
-      let ym = ct.substring(0, 7);
-      if (start && ym < start) inRange = false;
-      if (end && ym > end) inRange = false;
+    let ym = "";
+
+    // ปรับลอจิกแปลงรูปแบบวันที่ของ job_order_date ให้เป็น YYYY-MM
+    if (jDate) {
+      let parts = jDate.split(/[-/]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          ym = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+        } else if (parts[2].length === 4) {
+          ym = `${parts[2]}-${parts[1].padStart(2, "0")}`;
+        }
+      }
     }
+
+    // ตรวจสอบเงื่อนไขตามช่วงวันที่ที่เลือก
+    if (start || end) {
+      if (!ym) {
+        inRange = false;
+      } else {
+        if (start && ym < start) inRange = false;
+        if (end && ym > end) inRange = false;
+      }
+    }
+
     if (inRange) {
       const match = String(row[0]).match(/\[เหตุผล: (.*?)\]/);
       if (match && match[1]) {
@@ -324,17 +349,17 @@ async function updateRejectionDashboard(start, end) {
     }
   });
 
-  const sortedReasons = Object.entries(reasonCounts).sort(
-    (a, b) => b[1] - a[1],
-  );
+  const sortedReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]);
+  
   if (sortedReasons.length === 0) {
     container.innerHTML = `<tr><td colspan="2" style="text-align: center; color: #999; padding: 20px;">ไม่มีข้อมูลการปฏิเสธในช่วงที่เลือก</td></tr>`;
     return;
   }
+  
   container.innerHTML = sortedReasons
     .map(
       ([reason, count]) =>
-        `<tr><td style="font-size: 0.95em; font-weight: 600; color: var(--tmt-dark);">${reason}</td><td style="text-align: center;"><span class="badge badge-red" style="min-width: 40px;">${count}</span></td></tr>`,
+        `<tr><td style="font-size: 0.95em; font-weight: 600; color: var(--tmt-dark);">${reason}</td><td style="text-align: center;"><span class="badge badge-red" style="min-width: 40px;">${count}</span></td></tr>`
     )
     .join("");
 }
